@@ -1,19 +1,4 @@
-## Advanced Lane Finding
-[![Udacity - Self-Driving Car NanoDegree](https://s3.amazonaws.com/udacity-sdc/github/shield-carnd.svg)](http://www.udacity.com/drive)
-
-
-In this project, your goal is to write a software pipeline to identify the lane boundaries in a video, but the main output or product we want you to create is a detailed writeup of the project.  Check out the [writeup template](https://github.com/udacity/CarND-Advanced-Lane-Lines/blob/master/writeup_template.md) for this project and use it as a starting point for creating your own writeup.  
-
-Creating a great writeup:
----
-A great writeup should include the rubric points as well as your description of how you addressed each point.  You should include a detailed description of the code used in each step (with line-number references and code snippets where necessary), and links to other supporting documents or external references.  You should include images in your writeup to demonstrate how your code works with examples.  
-
-All that said, please be concise!  We're not looking for you to write a book here, just a brief description of how you passed each rubric point, and references to the relevant code :). 
-
-You're not required to use markdown for your writeup.  If you use another method please just submit a pdf of your writeup.
-
-The Project
----
+# Advanced Lane Finding Project
 
 The goals / steps of this project are the following:
 
@@ -26,14 +11,132 @@ The goals / steps of this project are the following:
 * Warp the detected lane boundaries back onto the original image.
 * Output visual display of the lane boundaries and numerical estimation of lane curvature and vehicle position.
 
-The images for camera calibration are stored in the folder called `camera_cal`.  The images in `test_images` are for testing your pipeline on single frames.  If you want to extract more test images from the videos, you can simply use an image writing method like `cv2.imwrite()`, i.e., you can read the video in frame by frame as usual, and for frames you want to save for later you can write to an image file.  
+[//]: # (Image References)
 
-To help the reviewer examine your work, please save examples of the output from each stage of your pipeline in the folder called `output_images`, and include a description in your writeup for the project of what each image shows.    The video called `project_video.mp4` is the video your pipeline should work well on.  
+[image1]: ./output_images/undistort_output.png
+[image2]: ./output_images/perspective_transform.png
+[image3]: ./output_images/binarization.png
+[image4]: ./output_images/histogram.png
+[image5]: ./output_images/sliding_window.png
+[image6]: ./output_images/search_from_prior.png
+[image7]: ./output_images/fit.png
+[image8]: ./output_images/result.png
 
-The `challenge_video.mp4` video is an extra (and optional) challenge for you if you want to test your pipeline under somewhat trickier conditions.  The `harder_challenge.mp4` video is another optional challenge and is brutal!
+[image9]: ./output_images/wrong_line.png
+[image10]: ./output_images/wrong_line_histogram.png
+[image11]: ./output_images/wrong_line_corrected_histogram.png
+[image12]: ./output_images/wrong_line_corrected.png
 
-If you're feeling ambitious (again, totally optional though), don't stop there!  We encourage you to go out and take video of your own, calibrate your camera and show us how you would implement this project from scratch!
+[video1]: ./output_videos/project_video.mp4
 
-## How to write a README
-A well written README file can enhance your project and portfolio.  Develop your abilities to create professional README files by completing [this free course](https://www.udacity.com/course/writing-readmes--ud777).
+## [Rubric](https://review.udacity.com/#!/rubrics/571/view) Points
 
+### Here I will consider the rubric points individually and describe how I addressed each point in my implementation.  
+
+---
+
+### Writeup / README
+
+#### 1. Provide a Writeup / README that includes all the rubric points and how you addressed each one.  You can submit your writeup as markdown or pdf.  [Here](https://github.com/udacity/CarND-Advanced-Lane-Lines/blob/master/writeup_template.md) is a template writeup for this project you can use as a guide and a starting point.  
+
+You're reading it!
+
+### Camera Calibration
+
+#### 1. Briefly state how you computed the camera matrix and distortion coefficients. Provide an example of a distortion corrected calibration image.
+
+I start by preparing "object points", which will be the (x, y, z) coordinates of the chessboard corners in the world. Here I am assuming the chessboard is fixed on the (x, y) plane at z=0, such that the object points are the same for each calibration image. After a successful detection of chessboard corners, I append a duplicate of these real-world coordinates to the `object_points` array and positions of corresponding points in the image to `image_points.`
+
+I then used the output `object_points` and `image_points` to compute the camera calibration and distortion coefficients using the `cv2.calibrateCamera()` function.
+
+### Pipeline
+
+#### 1. Provide an example of a distortion-corrected image.
+
+As a first step of the pipeline, I correct for distortion with `cv2.undistort()` function using the camera matrix obtained during calibration process. Here's an example of such correction applied to a test image:
+
+![alt text][image1]
+
+#### 2. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
+
+_The code for this step is contained in the fourth code cell of the IPython notebook located in `./solution.ipynb`._
+
+To calculate the transformation matrix, I first used one of the test images to locate four points with known relative positions in the real world. I chose the image such that the car was driving in the center of a straight lane and a segment of a white dashed line was clearly visible. Having known the length of such a segment to be about 3 meters and the width of the lane to be about 3.7 meters, I then calculated rectified positions of those points, preserving the relation to real-world distances as `SCALE_X` and `SCALE_Y` constants.
+
+I then used used the transformation matrix to create a birds-eyed view for each image in the pipeline, as shown below. The points used to calculate the transformation matrix are marked as well.
+
+![alt text][image2]
+
+#### 3. Describe how (and identify where in your code) you used color transforms, gradients or other methods to create a thresholded binary image.  Provide an example of a binary image result.
+
+_The code for this step is contained in the fifth code cell of the IPython notebook located in `./solution.ipynb`._
+
+To binarize the image, I used a combination of two thresholds; one based on saturation an the other based on gradient magnitude in the x direction. I purposely put this step **after** perspective transform, so that the y axis in the image would be parallel to the vehicle's direction, which in turn improved robustness of the gradient operation. Here's an example of such a binarization:
+
+![alt text][image3]
+
+#### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
+
+_The code for this step is contained in the sixth to ninth code cells of the IPython notebook located in `./solution.ipynb`._
+
+I used two techniques to detect lane line pixels and used them interchangeably depending on whether the lane was correctly identified in a previous frame.
+
+First approach (used when there is no previous detection) consisted of two steps, the first being calculating a column-wise histogram on the bottom half of the image. In the histogram, a value for each bin represented how many white pixels were present in the corresponding columns. I then identified two peaks, one for each lane line.
+
+![alt text][image4]
+
+Next, starting from the peaks, I used a *sliding window* technique to identify pixels corresponding to each line. An example is shown below.
+
+![alt text][image5]
+
+If previous detection data was available, instead of the two steps mentioned earlier I used *search from prior* technique to identify the lane line pixels. Here I select all the white pixels lying within a specified margin of the previous fit.
+
+![alt text][image6]
+
+Regardless of how the pixels were detected, the last thing to do is fit two second-degree polynomials to those points using `np.polyfit()` function. A visualization of the final result is shown below.
+
+![alt text][image7]
+
+#### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
+
+_The code for this step is contained in the tenth and eleventh code cells of the IPython notebook located in `./solution.ipynb`._
+
+The calculations for radius of curvature are based one the [radius of curvature equation](https://www.intmath.com/applications-differentiation/8-radius-curvature.php) and the distance from center is measured from the offset of the midpoint between the two lines in respect to image center. In both cases the scaling factor introduced earlier is taken into account to properly convert the values to meters.
+
+#### 6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
+
+![alt text][image8]
+
+---
+
+### Pipeline (video)
+
+#### 1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (wobbly lines are ok but no catastrophic failures that would cause the car to drive off the road!).
+
+Here's a [link to my video result](./project_video.mp4)
+
+---
+
+### Discussion
+
+#### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
+
+One of the problems I faced was incorrect detection of lane line pixels. Due to the changing environment, including varying lightness and passing cars, it's a challenging task to make the binarization step robust enough to filter out all unwanted components. This in turn sometimes results in erroneous (...). An extreme case of such event is shown below.
+
+![alt text][image9]
+
+The problem here was that As you can see, not only did the algorithm falsely recognize a passing car as part of the lane, the whole sliding window for the right lane line started in the wrong place. The reason for this can be found when investigating how the histogram was calculated from the bottom half of the image.
+
+![alt text][image10]
+
+There are two lane lines visible on the right side of the image, one for the lane the car is currently on and one for the next lane. Because a bigger part of the second one is visible on the screen, that's where the largest peak appears. That's also where the sliding window will start.
+
+The solution I came up with for this issue was clamping the histogram within a specified range. Starting from the center of the image, I only considered white pixels within one lane width to the left and right. Here's how the resulting histogram looks like:
+
+![alt text][image11]
+
+And here's the effect of this fix on the whole pipeline:
+
+![alt text][image12]
+
+However, even though the detection works much better than before, it can still suffer from imperfect binarization. For example, problems could occur if there was a car directly before the camera, or even changing lanes.
